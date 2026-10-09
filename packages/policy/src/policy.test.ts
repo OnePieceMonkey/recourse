@@ -80,8 +80,12 @@ describe("adjudicate", () => {
     const r = adjudicate({ ...base, reasons: ["HASH_MISMATCH"], deliveredSha256: B, submittedSha256: B }, undefined);
     expect(r).toEqual({ outcome: "REFUND", refundBps: 10000, reasons: ["HASH_MISMATCH"] });
   });
-  it("rejects a hash claim when the publisher delivered what it committed", () => {
+  it("contests a hash claim when the publisher's attestation contradicts the agent's bytes", () => {
     const r = adjudicate({ ...base, reasons: ["HASH_MISMATCH"], deliveredSha256: A, submittedSha256: B }, undefined);
+    expect(r).toEqual({ outcome: "CONTESTED", refundBps: 0, reasons: ["HASH_MISMATCH"] });
+  });
+  it("rejects a hash claim whose bytes match the commitment after all", () => {
+    const r = adjudicate({ ...base, reasons: ["HASH_MISMATCH"], deliveredSha256: A, submittedSha256: A }, undefined);
     expect(r.outcome).toBe("REJECT");
   });
   it("rejects fabricated bytes that the publisher never signed", () => {

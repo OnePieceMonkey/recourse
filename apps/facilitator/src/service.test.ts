@@ -198,7 +198,7 @@ describe("Facilitator (x402 auth-capture on paypal:sandbox)", () => {
     expect(await ctx2.f.runPayouts()).toMatchObject({ items: 1, totalMinor: 490 });
   });
 
-  it("rejects a hash claim with fabricated bytes", async () => {
+  it("never refunds a hash claim with fabricated bytes", async () => {
     const { settle } = await pay(ctx, "real content", 30);
     const r = await ctx.f.fileClaim(ctx.token, {
       purchaseId: settle.transaction,
@@ -207,7 +207,7 @@ describe("Facilitator (x402 auth-capture on paypal:sandbox)", () => {
       bodyBase64: b64("made up"),
       policyVersion: POLICY_VERSION,
     });
-    expect(r.outcome).toBe("REJECT");
+    expect(r).toMatchObject({ outcome: "CONTESTED", refund: { minor: 0 } });
   });
 
   it("keeps a verifiable, signed log of everything", async () => {

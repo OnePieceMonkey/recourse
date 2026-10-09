@@ -83,7 +83,12 @@ export function adjudicate(
       return { outcome: "CONTESTED", refundBps: 0, reasons: ["HASH_MISMATCH"] };
     }
     if (ev.deliveredSha256 === ev.committedSha256) {
-      return { outcome: "REJECT", refundBps: 0, reasons: ["EVIDENCE_DOES_NOT_MATCH_COMMITMENT"] };
+      // The publisher signed "I sent the committed bytes", the agent shows other
+      // bytes. Either the agent fabricates or a modified gate lied; the evidence
+      // cannot tell which, so no money moves and the publisher has to respond.
+      return ev.submittedSha256 === ev.committedSha256
+        ? { outcome: "REJECT", refundBps: 0, reasons: ["EVIDENCE_DOES_NOT_MATCH_COMMITMENT"] }
+        : { outcome: "CONTESTED", refundBps: 0, reasons: ["HASH_MISMATCH"] };
     }
     return ev.submittedSha256 === ev.deliveredSha256
       ? { outcome: "REFUND", refundBps: FULL, reasons: ["HASH_MISMATCH"] }
