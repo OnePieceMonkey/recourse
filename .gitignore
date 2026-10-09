@@ -15,3 +15,4 @@ coverage/
 docs/diagram/*.finalize*.json
 docs/diagram/*.delivery.json
 docs/diagram/*.browser-check.json
+.data-hosted/
