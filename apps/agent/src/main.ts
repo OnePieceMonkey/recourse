@@ -65,8 +65,10 @@ async function setup() {
 }
 
 function loadConfig(): AgentConfig {
-  if (!existsSync(STATE)) throw new Error(`no ${STATE}; run "pnpm --filter @recourse/agent start setup" first`);
-  const s = JSON.parse(readFileSync(STATE, "utf8")) as State;
+  // Hosted: the agent's identity comes from a secret, so restarts keep the same owner.
+  const raw = env.RECOURSE_AGENT_STATE ? Buffer.from(env.RECOURSE_AGENT_STATE, "base64").toString("utf8") : existsSync(STATE) ? readFileSync(STATE, "utf8") : undefined;
+  if (!raw) throw new Error(`no ${STATE}; run "pnpm --filter @recourse/agent start setup" first`);
+  const s = JSON.parse(raw) as State;
   return {
     facilitatorUrl,
     catalogUrl,
@@ -74,7 +76,17 @@ function loadConfig(): AgentConfig {
     agentToken: s.agentToken,
     agentSigner: signerFromEnv("agent-key-1", s.agentKey),
     mandateText: MANDATE_TEXT,
+    ...(env.RECOURSE_FETCH_REWRITE ? { fetchImpl: rewritingFetch(env.RECOURSE_FETCH_REWRITE) } : {}),
   };
+}
+
+// "https://public/publishers=http://127.0.0.1:4030": same URLs the user sees, internal route.
+function rewritingFetch(rule: string): typeof fetch {
+  const [from, to] = rule.split("=") as [string, string];
+  return ((input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    return fetch(url.startsWith(from) ? to + url.slice(from.length) : url, init);
+  }) as typeof fetch;
 }
 
 const eur = (minor: number) => `${(minor / 100).toFixed(2)} EUR`;

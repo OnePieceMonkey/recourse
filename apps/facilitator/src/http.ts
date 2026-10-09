@@ -36,6 +36,15 @@ export function createApp(f: Facilitator, opts: HttpOptions) {
 
   // ---------- x402 facilitator API ----------
   app.get("/health", (c) => c.json({ ok: true, paypal: f.paypal.mode }));
+  // Cloud Run only gives CPU while a request runs, so background timers stall when
+  // idle. The uptime monitor calls this every few minutes and the work runs inside it.
+  let lastTick = 0;
+  app.get("/v1/tick", async (c) => {
+    if (Date.now() - lastTick < 60_000) return c.json({ skipped: true });
+    lastTick = Date.now();
+    const settled = await Promise.allSettled([f.anchorHead(), f.upgradeAnchors(), f.runPayouts(), f.paypal.mode === "sandbox" ? f.answerDisputes() : Promise.resolve(null)]);
+    return c.json({ ok: true, results: settled.map((r) => (r.status === "fulfilled" ? "ok" : String((r.reason as Error)?.message ?? r.reason))) });
+  });
   app.get("/supported", (c) =>
     c.json({
       kinds: [{ x402Version: 2, scheme: SCHEME, network: f.config.network, extra: { binding: BINDING, paymentFlow: "authorization" } }],

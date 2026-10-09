@@ -13,6 +13,7 @@ export interface AgentConfig {
   agentToken: string;
   agentSigner: Signer;
   mandateText: string;
+  fetchImpl?: typeof fetch; // hosted: maps public publisher URLs to the internal service
 }
 
 export type AgentEvent =
@@ -66,7 +67,7 @@ export async function runResearch(
   const mandate = me.mandate;
   let spent = me.spentThisMonthMinor;
 
-  const catalog = (await (await fetch(cfg.catalogUrl)).json()) as CatalogEntry[];
+  const catalog = (await (await (cfg.fetchImpl ?? fetch)(cfg.catalogUrl)).json()) as CatalogEntry[];
   emit({ type: "catalog", items: catalog });
   const picks = await writer.pickSources(question, catalog);
   const byUrl = new Map(catalog.map((c) => [c.url, c]));
@@ -83,6 +84,7 @@ export async function runResearch(
     const entry = byUrl.get(pick.url)!;
     try {
       const result = await payingFetch(pick.url, {
+        ...(cfg.fetchImpl ? { fetchImpl: cfg.fetchImpl } : {}),
         agentId: cfg.agentId,
         agentSigner: cfg.agentSigner,
         beforePay: async (offer) => {
