@@ -14,6 +14,8 @@ interface FakeCapture {
 // refund above the captured amount, vault ids must exist.
 export class FakePayPal implements PayPalApi {
   readonly mode = "fake" as const;
+  // In the keyless demo there is no PayPal page to click, so setup tokens count as approved.
+  constructor(private readonly opts: { autoApprove?: boolean } = {}) {}
   private seq = 0;
   private setupTokens = new Map<string, { approved: boolean }>();
   private vaults = new Set<string>();
@@ -50,7 +52,7 @@ export class FakePayPal implements PayPalApi {
   async createPaymentToken(setupTokenId: string) {
     const t = this.setupTokens.get(setupTokenId);
     if (!t) throw new PayPalError("RESOURCE_NOT_FOUND", 404, "RESOURCE_NOT_FOUND", undefined, null);
-    if (!t.approved) throw new PayPalError("setup token not approved", 422, "UNPROCESSABLE_ENTITY", undefined, null);
+    if (!t.approved && !this.opts.autoApprove) throw new PayPalError("setup token not approved", 422, "UNPROCESSABLE_ENTITY", undefined, null);
     const vaultId = this.id("VAULT");
     this.vaults.add(vaultId);
     return { vaultId, payerEmail: "owner@personal.example.com", payerId: "FAKEPAYER" };

@@ -773,6 +773,82 @@ export class Facilitator {
     return { payoutId, paypalBatchId: res.payoutBatchId, items: items.length, totalMinor: total };
   }
 
+  // ---------- PayPal disputes ----------
+
+  // When an owner goes to PayPal instead of filing a Recourse claim, Recourse is
+  // the merchant in that case and answers with the same evidence its own
+  // adjudication used: the signed offer, the delivery attestation, the receipt.
+  async answerDisputes() {
+    const open = await this.paypal.listDisputes("REQUIRED_ACTION");
+    const answered: { disputeId: string; action: string; purchaseId?: string }[] = [];
+    for (const d of open) {
+      const [seen] = await this.db.query("SELECT dispute_id FROM disputes WHERE dispute_id = $1", [d.disputeId]);
+      if (seen) continue;
+      const detail = await this.paypal.getDispute(d.disputeId);
+      const [p] = detail.captureIds.length
+        ? await this.db.query<PurchaseRow>("SELECT * FROM purchases WHERE paypal_capture_id = ANY($1::text[])", [detail.captureIds])
+        : [];
+      let action: "evidence" | "accepted" | "unknown_transaction";
+      if (!p) {
+        action = "unknown_transaction";
+      } else {
+        const purchase = { ...p, price_minor: Number(p.price_minor), refunded_minor: Number(p.refunded_minor) };
+        const [claim] = await this.db.query<{ id: string; outcome: string; decided_reasons: string[]; paypal_refund_id: string | null; log_seq: number }>(
+          "SELECT id, outcome, decided_reasons, paypal_refund_id, log_seq FROM claims WHERE purchase_id = $1 ORDER BY created_at DESC LIMIT 1",
+          [purchase.id],
+        );
+        const delivered = purchase.delivery?.body.deliveredSha256;
+        if (delivered && delivered !== purchase.offer.contentSha256 && purchase.refunded_minor < purchase.price_minor) {
+          // Our own evidence says the buyer is right: accept instead of arguing.
+          await this.paypal.acceptDisputeClaim(d.disputeId, `Recourse_${purchase.id}_delivery_mismatch`);
+          action = "accepted";
+        } else {
+          await this.paypal.provideDisputeEvidence(d.disputeId, this.evidenceNotes(purchase, claim));
+          action = "evidence";
+        }
+      }
+      const entry = await this.db.tx(async (db) => {
+        const e = await this.append(db, "dispute_response", {
+          disputeId: d.disputeId,
+          reason: d.reason,
+          purchaseId: p?.id ?? null,
+          receiptSeq: p?.receipt_seq ?? null,
+          action,
+        });
+        await db.query("INSERT INTO disputes (dispute_id, purchase_id, reason, action, log_seq, created_at) VALUES ($1,$2,$3,$4,$5,$6)", [
+          d.disputeId,
+          p?.id ?? null,
+          d.reason,
+          action,
+          e.seq,
+          iso(this.now()),
+        ]);
+        return e;
+      });
+      answered.push({ disputeId: d.disputeId, action, ...(p ? { purchaseId: p.id } : {}), logSeq: entry.seq } as never);
+    }
+    return { answered };
+  }
+
+  private evidenceNotes(p: PurchaseRow, claim?: { id: string; outcome: string; decided_reasons: string[]; paypal_refund_id: string | null; log_seq: number }) {
+    const o = p.offer;
+    const d = p.delivery?.body;
+    const lines = [
+      `Recourse delivery evidence for purchase ${p.id} (digital content, x402 auth-capture on PayPal).`,
+      `Offer ${o.offerId} by publisher ${o.publisherId}, signed (Ed25519): "${o.title}". Promise: "${o.promise}".`,
+      `Committed SHA-256 of the content: ${o.contentSha256} (${o.contentLength} bytes).`,
+      d
+        ? `Publisher-signed delivery attestation at ${d.deliveredAt}: SHA-256 ${d.deliveredSha256} (${d.deliveredLength} bytes), ${d.deliveredSha256 === o.contentSha256 ? "identical to the commitment" : "DIFFERENT from the commitment"}.`
+        : "No delivery attestation on record.",
+      `Receipt: transparency log entry #${p.receipt_seq}, verifiable at ${this.config.publicBaseUrl}/v1/log/${p.receipt_seq} with key ${this.signer.kid} (${this.config.publicBaseUrl}/.well-known/recourse.json).`,
+      claim
+        ? `Recourse claim ${claim.id}: ${claim.outcome} (${claim.decided_reasons.join(", ")})${claim.paypal_refund_id ? `, PayPal refund ${claim.paypal_refund_id}` : ""}, log entry #${claim.log_seq}.`
+        : "The buyer's agent filed no claim with Recourse during the protection window.",
+      p.refunded_minor > 0 ? `Already refunded: ${p.refunded_minor} of ${p.price_minor} minor units ${p.currency}.` : "",
+    ];
+    return lines.filter(Boolean).join("\n");
+  }
+
   // ---------- read models for the dashboard ----------
 
   async publisherStats(publisherId: string) {

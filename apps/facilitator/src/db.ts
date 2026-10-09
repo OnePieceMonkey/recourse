@@ -210,6 +210,14 @@ CREATE TABLE IF NOT EXISTS anchors (
   proof JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
+CREATE TABLE IF NOT EXISTS disputes (
+  dispute_id TEXT PRIMARY KEY,
+  purchase_id TEXT,
+  reason TEXT NOT NULL,
+  action TEXT NOT NULL,
+  log_seq INTEGER NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL
+);
 CREATE TABLE IF NOT EXISTS nonces (
   nonce TEXT PRIMARY KEY,
   created_at TIMESTAMPTZ NOT NULL
