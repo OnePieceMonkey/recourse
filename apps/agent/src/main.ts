@@ -136,15 +136,43 @@ async function main() {
   if (cmd === "serve") {
     const app = new Hono();
     app.use("*", cors({ origin: "*" }));
-    app.get("/run", (c) =>
-      streamSSE(c, async (stream) => {
-        const q = c.req.query("q") ?? "";
-        await runResearch(q, loadConfig(), writerFromEnv(), judge(), (e) => void stream.writeSSE({ event: e.type, data: JSON.stringify(e) }), paypalAuditorFromEnv()).catch((err) =>
-          stream.writeSSE({ event: "error", data: JSON.stringify({ type: "error", message: (err as Error).message }) }),
-        );
-        await stream.writeSSE({ event: "done", data: "{}" });
-      }),
-    );
+    // The hosted demo is public and every run costs model calls: one run at a time,
+    // a few per visitor per hour, a daily cap overall. Counters live in memory
+    // (Cloud Run runs a single instance).
+    const PER_IP_HOUR = Number(env.RUNS_PER_IP_HOUR ?? 5);
+    const PER_DAY = Number(env.RUNS_PER_DAY ?? 40);
+    const byIp = new Map<string, number[]>();
+    let day = new Date().toISOString().slice(0, 10);
+    let today = 0;
+    let running = false;
+    app.get("/limits", (c) => c.json({ running, today, perDay: PER_DAY }));
+    app.get("/run", (c) => {
+      const ip = (c.req.header("x-forwarded-for") ?? "local").split(",")[0]!.trim();
+      const now = Date.now();
+      if (new Date().toISOString().slice(0, 10) !== day) {
+        day = new Date().toISOString().slice(0, 10);
+        today = 0;
+      }
+      const recent = (byIp.get(ip) ?? []).filter((t) => now - t < 3_600_000);
+      const refuse = running ? "busy" : today >= PER_DAY ? "daily_limit" : recent.length >= PER_IP_HOUR ? "hourly_limit" : undefined;
+      if (refuse) return c.json({ error: refuse, message: "The demo agent is rate limited. Try again in a moment." }, 429);
+      running = true;
+      today += 1;
+      byIp.set(ip, [...recent, now]);
+      return streamSSE(c, async (stream) => {
+        const q = (c.req.query("q") ?? "").slice(0, 500);
+        // A run finishes even if the viewer leaves; the lock is released either way.
+        const send = (event: string, data: unknown) => stream.writeSSE({ event, data: JSON.stringify(data) }).catch(() => undefined);
+        try {
+          await runResearch(q, loadConfig(), writerFromEnv(), judge(), (e) => void send(e.type, e), paypalAuditorFromEnv()).catch((err) =>
+            send("error", { type: "error", message: (err as Error).message }),
+          );
+          await send("done", {});
+        } finally {
+          running = false;
+        }
+      });
+    });
     const port = Number(env.PORT ?? 4040);
     serve({ fetch: app.fetch, port }, () => console.log(`[agent] streaming runs on http://localhost:${port}/run?q=...`));
     return;
