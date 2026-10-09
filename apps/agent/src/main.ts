@@ -45,12 +45,12 @@ async function setup() {
   const { ownerId } = await admin<{ ownerId: string }>("/v1/admin/owners", { name: env.OWNER_NAME ?? "Lena" });
   await admin(`/v1/admin/owners/${ownerId}/mandate`, {
     currency: "EUR",
-    budgetMonthlyMinor: Number(env.MANDATE_BUDGET_MINOR ?? 2000),
+    budgetMonthlyMinor: Number(env.MANDATE_BUDGET_MINOR ?? 5000),
     maxPerPurchaseMinor: Number(env.MANDATE_MAX_MINOR ?? 500),
     onTaskMinProbability: 0.6,
   });
   const vault = await admin<{ approveUrl: string }>(`/v1/admin/owners/${ownerId}/vault`, {});
-  const topup = await admin<{ approveUrl: string }>(`/v1/admin/owners/${ownerId}/topups`, { amountMinor: Number(env.TOPUP_MINOR ?? 500) });
+  const topup = await admin<{ approveUrl: string }>(`/v1/admin/owners/${ownerId}/topups`, { amountMinor: Number(env.TOPUP_MINOR ?? 2000) });
   const { privateJwk, signer } = generateSigner("agent-key-1");
   const { agentId, token } = await admin<{ agentId: string; token: string }>(`/v1/admin/owners/${ownerId}/agents`, {
     name: "research-agent",
