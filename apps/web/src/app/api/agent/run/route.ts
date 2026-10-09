@@ -16,16 +16,23 @@ export async function GET(req: Request) {
   if (q.length > 500) return fail(400, "bad_request", "The question is limited to 500 characters.");
   if (Date.now() < busyUntil) return fail(409, "run_in_progress", "A run is already in progress. Wait for it to finish.");
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(`${env.agentUrl}/run?q=${encodeURIComponent(q)}`, {
-      // The agent rate-limits per visitor, so it needs the visitor's address, not ours.
-      headers: { Accept: "text/event-stream", "x-forwarded-for": req.headers.get("x-forwarded-for") ?? "local" },
-      cache: "no-store",
-      signal: req.signal,
-    });
-  } catch (e) {
-    return fail(502, "agent_unreachable", `Could not reach the agent at ${env.agentUrl}. ${(e as Error).message}`);
+  let upstream: Response | undefined;
+  // After a cold start the web app is up a few seconds before the agent, so retry
+  // connection errors for a while instead of failing the first visitor.
+  for (let waited = 0; !upstream; waited += 1000) {
+    try {
+      upstream = await fetch(`${env.agentUrl}/run?q=${encodeURIComponent(q)}`, {
+        // The agent rate-limits per visitor, so it needs the visitor's address, not ours.
+        headers: { Accept: "text/event-stream", "x-forwarded-for": req.headers.get("x-forwarded-for") ?? "local" },
+        cache: "no-store",
+        signal: req.signal,
+      });
+    } catch (e) {
+      if (waited >= 30_000 || req.signal.aborted) {
+        return fail(502, "agent_unreachable", `Could not reach the agent at ${env.agentUrl}. ${(e as Error).message}`);
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
   if (upstream.status === 429) {
     const body = (await upstream.json().catch(() => ({}))) as { error?: string; message?: string };
