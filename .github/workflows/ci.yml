@@ -15,5 +15,5 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r --filter '!@recourse/web' typecheck
+      - run: pnpm -r --filter '!recourse' --filter '!@recourse/web' typecheck
       - run: pnpm test
