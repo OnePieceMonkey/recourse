@@ -212,7 +212,7 @@ export function OwnerView() {
           {owners === null && !error ? <span className="muted">Loading owners…</span> : null}
           {owners?.length === 0 ? (
             <span className="muted">
-              No owner yet. Run <code>pnpm setup</code> to create one with an agent.
+              No owner yet. Run <code>pnpm demo:setup</code> to create one with an agent.
             </span>
           ) : null}
           {owners?.map((o) => (

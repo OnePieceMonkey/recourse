@@ -61,7 +61,7 @@ Requirements: Node 22+, pnpm 10.
 pnpm install
 pnpm test          # policy, receipts, facilitator, end-to-end over HTTP
 pnpm dev           # Recourse :4020, publishers :4030, agent :4040, web :3000
-pnpm setup         # once, in a second terminal: demo owner, mandate, PayPal, agent key
+pnpm demo:setup    # once, in a second terminal: demo owner, mandate, PayPal, agent key
 pnpm ask           # run the research agent in the terminal, or open http://localhost:3000/console
 ```
 

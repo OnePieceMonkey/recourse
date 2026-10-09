@@ -12,7 +12,7 @@
     "typecheck": "pnpm -r --parallel typecheck",
     "lint": "pnpm typecheck",
     "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
-    "setup": "pnpm --filter @recourse/agent start setup",
+    "demo:setup": "pnpm --filter @recourse/agent start setup",
     "ask": "pnpm --filter @recourse/agent start ask"
   },
   "devDependencies": {
