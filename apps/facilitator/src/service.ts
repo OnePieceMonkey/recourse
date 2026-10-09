@@ -89,6 +89,8 @@ export function toRecourseError(e: unknown): RecourseError {
 const newId = (prefix: string) => `${prefix}_${randomBytes(9).toString("base64url")}`;
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 const iso = (d: Date) => d.toISOString();
+// Owner stats reach the public demo page, so never return a full payer address.
+export const maskEmail = (e: string | null) => (e ? e.replace(/^(.)[^@]*(@.*)$/, "$1***$2") : null);
 const monthStart = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 
 interface PurchaseRow {
@@ -874,7 +876,7 @@ export class Facilitator {
       [ownerId],
     );
     return {
-      owner: { id: owner.id, name: owner.name, paypalConnected: !!owner.vault_id, payerEmail: owner.payer_email },
+      owner: { id: owner.id, name: owner.name, paypalConnected: !!owner.vault_id, payerEmail: maskEmail(owner.payer_email) },
       balanceMinor: await this.balance(ownerId),
       spentThisMonthMinor: await this.spentThisMonth(ownerId),
       mandate: (await this.mandate(ownerId).catch(() => undefined))?.mandate,

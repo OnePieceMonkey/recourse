@@ -220,3 +220,11 @@ describe("Facilitator (x402 auth-capture on paypal:sandbox)", () => {
     expect(verifyChain(entries, ctx.recourse.publicJwk)).toEqual([]);
   });
 });
+
+describe("maskEmail", () => {
+  it("hides the local part of the payer address", async () => {
+    const { maskEmail } = await import("./service");
+    expect(maskEmail("someone@example.com")).toBe("s***@example.com");
+    expect(maskEmail(null)).toBeNull();
+  });
+});
