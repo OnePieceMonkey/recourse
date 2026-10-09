@@ -36,11 +36,13 @@ export type SignedOffer = z.infer<typeof SignedOfferSchema>;
 
 // Sent by the gate with every delivered body: the publisher's signature over the
 // hash of the bytes it actually sent. This is what makes bait-and-switch provable.
+// Offer ids are single-use (an offer can be paid once), so the offer id alone
+// identifies the purchase the delivery belongs to.
 export const DeliveryBodySchema = z.object({
   v: z.literal(1),
   offerId: z.string(),
-  purchaseId: z.string(),
   deliveredSha256: sha256,
+  deliveredLength: z.number().int().nonnegative(),
   deliveredAt: z.string().datetime(),
 });
 export type DeliveryBody = z.infer<typeof DeliveryBodySchema>;
@@ -63,6 +65,8 @@ export const ReceiptDataSchema = z.object({
   paypalCaptureId: z.string().optional(),
   mandateVersion: z.number().int(),
   mandateHash: sha256,
+  deliveredSha256: sha256,
+  deliveredLength: z.number().int().nonnegative(),
   protectionUntil: z.string().datetime(),
 });
 export type ReceiptData = z.infer<typeof ReceiptDataSchema>;

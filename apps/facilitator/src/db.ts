@@ -114,6 +114,8 @@ CREATE TABLE IF NOT EXISTS agents (
   owner_id TEXT NOT NULL REFERENCES owners(id),
   name TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
+  kid TEXT NOT NULL,
+  public_jwk JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL
 );
 -- Prepaid balance as an append-only ledger; balance = SUM(amount_minor).
@@ -133,6 +135,7 @@ CREATE TABLE IF NOT EXISTS topups (
   currency TEXT NOT NULL,
   status TEXT NOT NULL,
   capture_id TEXT,
+  refunded_minor INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL
 );
 CREATE TABLE IF NOT EXISTS publishers (

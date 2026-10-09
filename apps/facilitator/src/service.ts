@@ -10,16 +10,24 @@ import {
   type Verdict,
 } from "@recourse/policy";
 import {
+  authorizationMatches,
   ClaimRequestSchema,
-  DeliveryBodySchema,
+  EXT_OFFER,
+  EXT_RECEIPT,
+  FacilitatorRequestSchema,
+  NETWORK_SANDBOX,
   OfferBodySchema,
   offerHash,
+  requirementsMatchOffer,
+  SCHEME,
   verifySigned,
   type ClaimResult,
+  type FacilitatorRequest,
   type OfferBody,
   type ReceiptData,
+  type SettlementResponse,
   type SignedDelivery,
-  type SignedOffer,
+  type VerifyResponse,
 } from "@recourse/protocol";
 import type { PayPalApi } from "@recourse/paypal";
 import {
@@ -33,6 +41,7 @@ import {
   type LogEntryType,
   type PublicJwk,
   type Signer,
+  verifySignature,
 } from "@recourse/receipts";
 import type { Db } from "./db";
 
@@ -50,6 +59,7 @@ export interface FacilitatorConfig {
   thresholds: ClaimThresholds;
   maxClaimsPerAgentPerDay: number;
   publicBaseUrl: string;
+  network: string;
 }
 
 export const DEFAULT_CONFIG: FacilitatorConfig = {
@@ -57,6 +67,7 @@ export const DEFAULT_CONFIG: FacilitatorConfig = {
   thresholds: DEFAULT_THRESHOLDS,
   maxClaimsPerAgentPerDay: 20,
   publicBaseUrl: "http://localhost:4020",
+  network: NETWORK_SANDBOX,
 };
 
 export class RecourseError extends Error {
@@ -67,6 +78,12 @@ export class RecourseError extends Error {
   ) {
     super(message);
   }
+}
+
+export function toRecourseError(e: unknown): RecourseError {
+  if (e instanceof RecourseError) return e;
+  if (e && typeof e === "object" && "issues" in e) return new RecourseError("invalid_payload", String((e as { message?: unknown }).message));
+  return new RecourseError("unexpected_error", (e as Error)?.message ?? String(e), 500);
 }
 
 const newId = (prefix: string) => `${prefix}_${randomBytes(9).toString("base64url")}`;
@@ -178,8 +195,8 @@ export class Facilitator {
     return { publisherId: id };
   }
 
-  private async publisher(id: string) {
-    const [p] = await this.db.query<{ id: string; name: string; payout_email: string; public_jwk: PublicJwk; kid: string }>(
+  private async publisher(id: string, db: Db = this.db) {
+    const [p] = await db.query<{ id: string; name: string; payout_email: string; public_jwk: PublicJwk; kid: string }>(
       "SELECT * FROM publishers WHERE id = $1",
       [id],
     );
@@ -220,8 +237,8 @@ export class Facilitator {
     return { ownerId: row.owner_id, vaultConnected: true, payerEmail: token.payerEmail };
   }
 
-  async owner(ownerId: string) {
-    const [o] = await this.db.query<{ id: string; name: string; vault_id: string | null; payer_email: string | null }>(
+  async owner(ownerId: string, db: Db = this.db) {
+    const [o] = await db.query<{ id: string; name: string; vault_id: string | null; payer_email: string | null }>(
       "SELECT id, name, vault_id, payer_email FROM owners WHERE id = $1",
       [ownerId],
     );
@@ -256,18 +273,25 @@ export class Facilitator {
     return { mandate: m.body, hash: m.hash };
   }
 
-  async createAgent(ownerId: string, name: string) {
+  // The agent signs payments with its own key (the publisher relays them, so a
+  // bearer token there would leak); the token is only for talking to Recourse.
+  async createAgent(ownerId: string, name: string, kid: string, publicJwk: PublicJwk) {
     await this.owner(ownerId);
     const id = newId("agt");
     const token = `rca_${randomBytes(24).toString("base64url")}`;
-    await this.db.query("INSERT INTO agents (id, owner_id, name, token_hash, created_at) VALUES ($1, $2, $3, $4, $5)", [
-      id,
-      ownerId,
-      name,
-      tokenHash(token),
-      iso(this.now()),
-    ]);
+    await this.db.query(
+      "INSERT INTO agents (id, owner_id, name, token_hash, kid, public_jwk, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+      [id, ownerId, name, tokenHash(token), kid, publicJwk, iso(this.now())],
+    );
     return { agentId: id, token };
+  }
+
+  private async agentById(agentId: string, db: Db = this.db) {
+    const [a] = await db.query<{ id: string; owner_id: string; kid: string; public_jwk: PublicJwk }>(
+      "SELECT id, owner_id, kid, public_jwk FROM agents WHERE id = $1",
+      [agentId],
+    );
+    return a;
   }
 
   async authenticateAgent(token: string | undefined) {
@@ -335,67 +359,116 @@ export class Facilitator {
     return Number(r?.total ?? 0);
   }
 
-  async settle(input: { agentToken: string | undefined; offer: SignedOffer; nonce: string }) {
-    const agent = await this.authenticateAgent(input.agentToken);
-    const offer = OfferBodySchema.parse(input.offer.body);
-    const pub = await this.publisher(offer.publisherId);
-    if (!verifySigned(pub.public_jwk, input.offer)) {
-      throw new RecourseError("bad_offer_signature", "offer signature does not verify against the publisher key", 400);
+  // x402 /verify: read-only. Everything that can fail before content is produced.
+  async verifyPayment(raw: unknown): Promise<VerifyResponse> {
+    try {
+      const ctx = await this.checkPayment(FacilitatorRequestSchema.parse(raw), this.db, false);
+      return { isValid: true, payer: ctx.agent.id };
+    } catch (e) {
+      const err = toRecourseError(e);
+      return { isValid: false, invalidReason: err.code, invalidMessage: err.message };
     }
-    if (new Date(offer.expiresAt) < this.now()) throw new RecourseError("offer_expired", "offer expired", 410);
-    if (!/^[A-Za-z0-9_-]{16,128}$/.test(input.nonce)) throw new RecourseError("bad_nonce", "nonce must be 16-128 url-safe chars", 400);
+  }
 
-    const owner = await this.owner(agent.ownerId);
+  private async checkPayment(req: FacilitatorRequest, db: Db, consumeNonce: boolean) {
+    const { paymentPayload: pp, paymentRequirements: reqs } = req;
+    if (reqs.scheme !== SCHEME) throw new RecourseError("unsupported_scheme", `scheme ${reqs.scheme} is not supported`);
+    if (reqs.network !== this.config.network) throw new RecourseError("invalid_network", `network must be ${this.config.network}`);
+    const offerSigned = pp.extensions?.[EXT_OFFER]?.info.offer;
+    if (!offerSigned) throw new RecourseError("invalid_payload", `missing ${EXT_OFFER} extension`);
+    const offer = OfferBodySchema.parse(offerSigned.body);
+    const pub = await this.publisher(offer.publisherId, db);
+    if (!verifySigned(pub.public_jwk, offerSigned)) throw new RecourseError("invalid_offer_signature", "offer signature does not verify");
+    if (!requirementsMatchOffer(reqs, offerSigned) || !requirementsMatchOffer(pp.accepted, offerSigned)) {
+      throw new RecourseError("invalid_payment_requirements", "requirements do not match the signed offer");
+    }
+    const auth = pp.payload.authorization;
+    if (!authorizationMatches(auth, reqs, offerSigned)) throw new RecourseError("invalid_payload", "authorization does not match the offer");
+    const agent = await this.agentById(auth.agentId, db);
+    if (!agent || agent.kid !== pp.payload.kid || !verifySignature(agent.public_jwk, auth, pp.payload.signature)) {
+      throw new RecourseError("invalid_agent_signature", "agent signature does not verify");
+    }
     const now = this.now();
+    if (new Date(offer.expiresAt) < now) throw new RecourseError("offer_expired", "offer expired");
+    if (auth.validBefore * 1000 < now.getTime()) throw new RecourseError("authorization_expired", "authorization expired");
+
+    const [used] = await db.query("SELECT nonce FROM nonces WHERE nonce = $1", [auth.nonce]);
+    if (used) throw new RecourseError("replayed_nonce", "nonce already used", 409);
+    const [dup] = await db.query("SELECT id FROM purchases WHERE offer_id = $1", [offer.offerId]);
+    if (dup) throw new RecourseError("offer_already_paid", "this offer was already paid", 409);
+    if (consumeNonce) await db.query("INSERT INTO nonces (nonce, created_at) VALUES ($1, $2)", [auth.nonce, iso(now)]);
+
+    const owner = await this.owner(agent.owner_id, db);
+    const { mandate, hash: mandateHash } = await this.mandate(agent.owner_id, db);
+    const decision = checkMandate(
+      { publisherId: offer.publisherId, priceMinor: offer.price.minor, currency: offer.price.currency },
+      mandate,
+      { spentThisMonthMinor: await this.spentThisMonth(agent.owner_id, db) },
+    );
+    if (!decision.allow) {
+      throw new RecourseError("mandate_violation", `purchase outside mandate: ${decision.reasons.join(", ")}`, 403);
+    }
+    const funding: "balance" | "paypal_vault" = offer.price.minor < this.config.fundingThresholdMinor ? "balance" : "paypal_vault";
+    if (funding === "balance" && (await this.balance(agent.owner_id, db)) < offer.price.minor) {
+      throw new RecourseError("insufficient_funds", "prepaid balance too low, top up first", 402);
+    }
+    if (funding === "paypal_vault" && !owner.vault_id) throw new RecourseError("insufficient_funds", "owner has not connected PayPal", 402);
+    return { offer, offerSigned, pub, agent, owner, mandate, mandateHash, funding, auth };
+  }
+
+  // x402 /settle under the `authorization` flow: the gate has produced the content
+  // and sends the publisher-signed delivery attestation with the settle call.
+  // Money moves only if what was delivered is what was committed.
+  async settlePayment(raw: unknown): Promise<SettlementResponse & { purchaseId?: string }> {
+    const network = this.config.network;
+    let req: FacilitatorRequest;
+    try {
+      req = FacilitatorRequestSchema.parse(raw);
+    } catch (e) {
+      return { success: false, errorReason: "invalid_payload", errorMessage: (e as Error).message, transaction: "", network };
+    }
     const purchaseId = newId("pur");
-    const price = offer.price;
+    const now = this.now();
+    let ctx: Awaited<ReturnType<Facilitator["checkPayment"]>>;
+    try {
+      ctx = await this.db.tx(async (db) => {
+        const c = await this.checkPayment(req, db, true);
+        const delivery = req.paymentPayload.payload.delivery;
+        if (!delivery || delivery.body.offerId !== c.offer.offerId || !verifySigned(c.pub.public_jwk, delivery)) {
+          throw new RecourseError("invalid_delivery_attestation", "settle needs a publisher-signed delivery attestation");
+        }
+        if (delivery.body.deliveredSha256 !== c.offer.contentSha256) {
+          throw new RecourseError("delivery_mismatch", "delivered content differs from the signed commitment; nothing was charged");
+        }
+        if (c.funding === "balance") {
+          await db.query(
+            "INSERT INTO ledger (id, owner_id, kind, amount_minor, currency, ref, created_at) VALUES ($1, $2, 'purchase', $3, $4, $5, $6)",
+            [newId("led"), c.agent.owner_id, -c.offer.price.minor, c.offer.price.currency, purchaseId, iso(now)],
+          );
+        }
+        return c;
+      });
+    } catch (e) {
+      const err = toRecourseError(e);
+      if (err.code === "delivery_mismatch") await this.recordRefusal(req, err);
+      return { success: false, errorReason: err.code, errorMessage: err.message, transaction: "", network };
+    }
 
-    // Mandate and balance checks happen inside the transaction so two parallel
-    // purchases cannot both pass a limit that only one of them fits.
-    const pre = await this.db.tx(async (db) => {
-      const [used] = await db.query("SELECT nonce FROM nonces WHERE nonce = $1", [input.nonce]);
-      if (used) throw new RecourseError("replayed_nonce", "nonce already used", 409);
-      const [dup] = await db.query("SELECT id FROM purchases WHERE offer_id = $1", [offer.offerId]);
-      if (dup) throw new RecourseError("offer_already_paid", "this offer was already paid", 409);
-      await db.query("INSERT INTO nonces (nonce, created_at) VALUES ($1, $2)", [input.nonce, iso(now)]);
-
-      const { mandate, hash: mandateHash } = await this.mandate(agent.ownerId, db);
-      const decision = checkMandate(
-        { publisherId: offer.publisherId, priceMinor: price.minor, currency: price.currency },
-        mandate,
-        { spentThisMonthMinor: await this.spentThisMonth(agent.ownerId, db) },
-      );
-      if (!decision.allow) {
-        throw new RecourseError("mandate_violation", `purchase outside mandate: ${decision.reasons.join(", ")}`, 403);
-      }
-      const funding: "balance" | "paypal_vault" = price.minor < this.config.fundingThresholdMinor ? "balance" : "paypal_vault";
-      if (funding === "balance") {
-        const bal = await this.balance(agent.ownerId, db);
-        if (bal < price.minor) throw new RecourseError("insufficient_balance", "prepaid balance too low, top up first", 402);
-        await db.query(
-          "INSERT INTO ledger (id, owner_id, kind, amount_minor, currency, ref, created_at) VALUES ($1, $2, 'purchase', $3, $4, $5, $6)",
-          [newId("led"), agent.ownerId, -price.minor, price.currency, purchaseId, iso(now)],
-        );
-      } else if (!owner.vault_id) {
-        throw new RecourseError("no_vault", "owner has not connected PayPal", 402);
-      }
-      return { mandate, mandateHash, funding };
-    });
-
+    const { offer, offerSigned, agent, owner, funding } = ctx;
+    const delivery = req.paymentPayload.payload.delivery!;
     let capture: { orderId: string; captureId: string } | undefined;
-    if (pre.funding === "paypal_vault") {
+    if (funding === "paypal_vault") {
       try {
         capture = await this.paypal.chargeVault({
           vaultId: owner.vault_id!,
-          amount: price,
-          description: `${offer.title}`.slice(0, 127),
+          amount: offer.price,
+          description: offer.title.slice(0, 127),
           customId: purchaseId,
           requestId: `charge:${purchaseId}`,
         });
       } catch (e) {
-        // Free the nonce and offer so the agent can retry.
-        await this.db.query("DELETE FROM nonces WHERE nonce = $1", [input.nonce]);
-        throw new RecourseError("paypal_charge_failed", `PayPal charge failed: ${(e as Error).message}`, 402);
+        await this.db.query("DELETE FROM nonces WHERE nonce = $1", [ctx.auth.nonce]);
+        return { success: false, errorReason: "paypal_charge_failed", errorMessage: (e as Error).message, transaction: "", network };
       }
     }
 
@@ -405,36 +478,39 @@ export class Facilitator {
         purchaseId,
         offerId: offer.offerId,
         offerHash: offerHash(offer),
-        offerSig: input.offer.sig,
+        offerSig: offerSigned.sig,
         publisherId: offer.publisherId,
-        ownerId: agent.ownerId,
-        agentId: agent.agentId,
-        price,
-        funding: pre.funding,
+        ownerId: agent.owner_id,
+        agentId: agent.id,
+        price: offer.price,
+        funding,
         ...(capture ? { paypalCaptureId: capture.captureId } : {}),
-        mandateVersion: pre.mandate.version,
-        mandateHash: pre.mandateHash,
+        mandateVersion: ctx.mandate.version,
+        mandateHash: ctx.mandateHash,
+        deliveredSha256: delivery.body.deliveredSha256,
+        deliveredLength: delivery.body.deliveredLength,
         protectionUntil: iso(protectionUntil),
       };
       const entry = await this.append(db, "receipt", receiptData as unknown as Record<string, unknown>);
       await db.query(
         `INSERT INTO purchases (id, owner_id, agent_id, publisher_id, offer_id, offer, offer_hash, price_minor, currency, funding,
-           paypal_order_id, paypal_capture_id, status, receipt_seq, protection_until, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'SETTLED',$13,$14,$15)`,
+           paypal_order_id, paypal_capture_id, status, receipt_seq, delivery, protection_until, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'SETTLED',$13,$14,$15,$16)`,
         [
           purchaseId,
-          agent.ownerId,
-          agent.agentId,
+          agent.owner_id,
+          agent.id,
           offer.publisherId,
           offer.offerId,
-          { ...offer, sig: input.offer.sig },
+          { ...offer, sig: offerSigned.sig },
           receiptData.offerHash,
-          price.minor,
-          price.currency,
-          pre.funding,
+          offer.price.minor,
+          offer.price.currency,
+          funding,
           capture?.orderId ?? null,
           capture?.captureId ?? null,
           entry.seq,
+          delivery,
           iso(protectionUntil),
           iso(now),
         ],
@@ -442,23 +518,49 @@ export class Facilitator {
       await db.query(
         `INSERT INTO earnings (purchase_id, publisher_id, amount_minor, currency, status, payable_after)
          VALUES ($1, $2, $3, $4, 'PENDING', $5)`,
-        [purchaseId, offer.publisherId, price.minor, price.currency, iso(protectionUntil)],
+        [purchaseId, offer.publisherId, offer.price.minor, offer.price.currency, iso(protectionUntil)],
       );
       return entry;
     });
 
-    return { purchaseId, funding: pre.funding, receipt, paypalCaptureId: capture?.captureId };
+    return {
+      success: true,
+      transaction: purchaseId,
+      network,
+      payer: agent.id,
+      amount: String(offer.price.minor),
+      purchaseId,
+      extensions: {
+        [EXT_RECEIPT]: {
+          info: {
+            purchaseId,
+            funding,
+            ...(capture ? { paypalCaptureId: capture.captureId } : {}),
+            receipt,
+            recoursePublicKey: this.publicKey(),
+            claimUrl: `${this.config.publicBaseUrl}/v1/claims`,
+            verifyUrl: `${this.config.publicBaseUrl}/v1/log/${receipt.seq}`,
+          },
+          schema: { type: "object" },
+        },
+      },
+    };
   }
 
-  // The gate reports what it actually delivered, signed by the publisher.
-  async recordDelivery(delivery: SignedDelivery) {
-    const body = DeliveryBodySchema.parse(delivery.body);
-    const p = await this.purchase(body.purchaseId);
-    if (p.offer_id !== body.offerId) throw new RecourseError("delivery_mismatch", "delivery does not belong to this purchase", 400);
-    const pub = await this.publisher(p.publisher_id);
-    if (!verifySigned(pub.public_jwk, delivery)) throw new RecourseError("bad_delivery_signature", "bad delivery signature", 400);
-    await this.db.query("UPDATE purchases SET delivery = $2 WHERE id = $1 AND delivery IS NULL", [p.id, delivery]);
-    return { recorded: true };
+  // A refused bait-and-switch is evidence too: it lands in the log and on the
+  // publisher's record, even though no money moved.
+  private async recordRefusal(req: FacilitatorRequest, err: RecourseError) {
+    const offer = req.paymentPayload.extensions?.[EXT_OFFER]?.info.offer?.body;
+    await this.db.tx((db) =>
+      this.append(db, "settlement_refused", {
+        reason: err.code,
+        offerId: offer?.offerId ?? null,
+        publisherId: offer?.publisherId ?? null,
+        agentId: req.paymentPayload.payload.authorization.agentId,
+        committedSha256: offer?.contentSha256 ?? null,
+        deliveredSha256: req.paymentPayload.payload.delivery?.body.deliveredSha256 ?? null,
+      }),
+    );
   }
 
   async purchase(id: string): Promise<PurchaseRow> {
@@ -491,7 +593,7 @@ export class Facilitator {
     const pub = await this.publisher(p.publisher_id);
     const delivery = [p.delivery, req.delivery].find(
       (d): d is SignedDelivery =>
-        !!d && d.body.purchaseId === p.id && d.body.offerId === p.offer_id && verifySigned(pub.public_jwk, d),
+        !!d && d.body.offerId === p.offer_id && verifySigned(pub.public_jwk, d),
     );
 
     const offer = p.offer;
@@ -526,19 +628,33 @@ export class Facilitator {
 
     let paypalRefundId: string | undefined;
     const claimId = newId("clm");
-    if (refundMinor > 0 && p.funding === "paypal_vault") {
-      const r = await this.paypal.refundCapture({
-        captureId: p.paypal_capture_id!,
-        amount: { currency: p.currency, minor: refundMinor },
-        note: `Recourse claim ${claimId}: ${decision.reasons.join(", ")}`.slice(0, 255),
-        requestId: `refund:${claimId}`,
-      });
-      paypalRefundId = r.refundId;
+    // Every refund is a real PayPal refund the owner can see in PayPal: vault
+    // purchases refund their own capture, balance purchases refund part of the
+    // top-up capture that funded the balance. Ledger credit is only the fallback.
+    let topupRefunded: string | undefined;
+    if (refundMinor > 0) {
+      const note = `Recourse claim ${claimId}: ${decision.reasons.join(", ")}`.slice(0, 255);
+      const amount = { currency: p.currency, minor: refundMinor };
+      if (p.funding === "paypal_vault") {
+        paypalRefundId = (await this.paypal.refundCapture({ captureId: p.paypal_capture_id!, amount, note, requestId: `refund:${claimId}` })).refundId;
+      } else {
+        const [topup] = await this.db.query<{ order_id: string; capture_id: string }>(
+          `SELECT order_id, capture_id FROM topups WHERE owner_id = $1 AND status = 'COMPLETED' AND currency = $2
+             AND amount_minor - refunded_minor >= $3 ORDER BY created_at DESC LIMIT 1`,
+          [p.owner_id, p.currency, refundMinor],
+        );
+        if (topup) {
+          paypalRefundId = (await this.paypal.refundCapture({ captureId: topup.capture_id, amount, note, requestId: `refund:${claimId}` })).refundId;
+          topupRefunded = topup.order_id;
+        }
+      }
     }
 
     const entry = await this.db.tx(async (db) => {
       if (refundMinor > 0) {
-        if (p.funding === "balance") {
+        if (topupRefunded) {
+          await db.query("UPDATE topups SET refunded_minor = refunded_minor + $2 WHERE order_id = $1", [topupRefunded, refundMinor]);
+        } else if (p.funding === "balance") {
           await db.query(
             "INSERT INTO ledger (id, owner_id, kind, amount_minor, currency, ref, created_at) VALUES ($1, $2, 'refund', $3, $4, $5, $6)",
             [newId("led"), p.owner_id, refundMinor, p.currency, claimId, iso(this.now())],

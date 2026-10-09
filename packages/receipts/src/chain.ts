@@ -4,7 +4,7 @@ import { verifySignature } from "./keys";
 
 export const GENESIS_HASH = "0".repeat(64);
 
-export type LogEntryType = "receipt" | "claim_decision" | "payout" | "anchor";
+export type LogEntryType = "receipt" | "settlement_refused" | "claim_decision" | "payout" | "anchor";
 
 export interface LogEntryBody {
   seq: number;

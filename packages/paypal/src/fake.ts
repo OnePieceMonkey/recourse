@@ -1,5 +1,5 @@
 import type { Money } from "./money";
-import { PayPalError, type PayPalApi } from "./types";
+import { PayPalError, type DisputeSummary, type PayPalApi } from "./types";
 
 interface FakeCapture {
   captureId: string;
@@ -124,5 +124,44 @@ export class FakePayPal implements PayPalApi {
 
   async verifyWebhook() {
     return true;
+  }
+
+  // ---------- disputes ----------
+  readonly disputes = new Map<string, { disputeId: string; captureId: string; status: string; reason: string; amount: Money; evidence: string[] }>();
+
+  // Test helper: what the buyer does in the sandbox Resolution Center.
+  openDispute(captureId: string, reason = "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED") {
+    const c = this.captures.get(captureId);
+    if (!c) throw new Error(`unknown capture ${captureId}`);
+    const disputeId = this.id("PP-D");
+    this.disputes.set(disputeId, { disputeId, captureId, status: "WAITING_FOR_SELLER_RESPONSE", reason, amount: c.amount, evidence: [] });
+    return disputeId;
+  }
+
+  async listDisputes(): Promise<DisputeSummary[]> {
+    return [...this.disputes.values()]
+      .filter((d) => d.status === "WAITING_FOR_SELLER_RESPONSE")
+      .map((d) => ({ disputeId: d.disputeId, status: d.status, reason: d.reason, amount: d.amount }));
+  }
+
+  async getDispute(disputeId: string) {
+    const d = this.disputes.get(disputeId);
+    if (!d) throw new PayPalError("dispute not found", 404, "RESOURCE_NOT_FOUND", undefined, null);
+    return { disputeId, status: d.status, reason: d.reason, captureIds: [d.captureId], links: ["provide_evidence", "accept_claim"] };
+  }
+
+  async provideDisputeEvidence(disputeId: string, notes: string) {
+    const d = this.disputes.get(disputeId);
+    if (!d) throw new PayPalError("dispute not found", 404, "RESOURCE_NOT_FOUND", undefined, null);
+    d.evidence.push(notes);
+    d.status = "UNDER_REVIEW";
+  }
+
+  async acceptDisputeClaim(disputeId: string, _note: string, refund?: Money) {
+    const d = this.disputes.get(disputeId);
+    if (!d) throw new PayPalError("dispute not found", 404, "RESOURCE_NOT_FOUND", undefined, null);
+    const c = this.captures.get(d.captureId)!;
+    c.refundedMinor += refund?.minor ?? c.amount.minor - c.refundedMinor;
+    d.status = "RESOLVED";
   }
 }

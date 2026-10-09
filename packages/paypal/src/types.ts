@@ -6,7 +6,7 @@ export interface PayPalApi {
   readonly mode: "sandbox" | "fake";
 
   // Owner connects PayPal once (Vault v3, save without purchase).
-  createVaultSetupToken(input: { returnUrl: string; cancelUrl: string }): Promise<{ setupTokenId: string; approveUrl: string }>;
+  createVaultSetupToken(input: { returnUrl: string; cancelUrl: string; description?: string; customerId?: string }): Promise<{ setupTokenId: string; approveUrl: string }>;
   createPaymentToken(setupTokenId: string): Promise<{ vaultId: string; payerEmail?: string; payerId?: string }>;
 
   // Merchant-initiated charge against the vault, no buyer present.
@@ -16,6 +16,7 @@ export interface PayPalApi {
     description: string;
     customId: string; // our purchase id, shows up in PayPal reports
     requestId: string; // idempotency key
+    url?: string;
   }): Promise<{ orderId: string; captureId: string; status: string }>;
 
   // One-time checkout to top up the prepaid balance.
@@ -35,6 +36,21 @@ export interface PayPalApi {
   getPayout(payoutBatchId: string): Promise<{ status: string; items: { senderItemId: string; status: string }[] }>;
 
   verifyWebhook(input: { headers: Record<string, string | undefined>; body: string; webhookId: string }): Promise<boolean>;
+
+  // Merchant side of PayPal disputes. Cases are opened by the buyer (in the sandbox:
+  // by hand in the Resolution Center); Recourse answers them with its evidence.
+  listDisputes(state?: string): Promise<DisputeSummary[]>;
+  getDispute(disputeId: string): Promise<{ disputeId: string; status: string; reason: string; captureIds: string[]; links: string[] }>;
+  provideDisputeEvidence(disputeId: string, notes: string, files?: { filename: string; type: string; data: Uint8Array }[]): Promise<void>;
+  acceptDisputeClaim(disputeId: string, note: string, refund?: Money): Promise<void>;
+}
+
+export interface DisputeSummary {
+  disputeId: string;
+  status: string;
+  reason: string;
+  amount?: Money | undefined;
+  createTime?: string;
 }
 
 export class PayPalError extends Error {
