@@ -65,6 +65,17 @@ export function createApp(f: Facilitator, opts: HttpOptions) {
   app.get("/v1/anchors", async (c) => c.json(await f.anchors()));
 
   // ---------- owner onboarding (demo: guarded by the admin token, used by the web app) ----------
+  app.get("/v1/admin/owners", admin, async (c) => c.json(await f.db.query("SELECT id, name, vault_id IS NOT NULL AS paypal_connected, created_at FROM owners ORDER BY created_at")));
+  app.get("/v1/admin/publishers", admin, async (c) => c.json(await f.db.query("SELECT id, name, kid, created_at FROM publishers ORDER BY created_at")));
+  app.get("/v1/admin/claims", admin, async (c) =>
+    c.json(
+      await f.db.query(
+        `SELECT c.id, c.purchase_id, c.outcome, c.refund_minor, c.decided_reasons, c.reasons, c.paypal_refund_id, c.log_seq, c.created_at,
+                p.offer->>'title' AS title, p.publisher_id, p.price_minor, p.currency, p.funding
+         FROM claims c JOIN purchases p ON p.id = c.purchase_id ORDER BY c.created_at DESC LIMIT 200`,
+      ),
+    ),
+  );
   app.post("/v1/admin/owners", admin, async (c) => c.json(await f.createOwner((await c.req.json()).name ?? "Owner")));
   app.get("/v1/admin/owners/:id", admin, async (c) => c.json(await f.ownerStats(c.req.param("id")!)));
   app.post("/v1/admin/owners/:id/vault", admin, async (c) =>

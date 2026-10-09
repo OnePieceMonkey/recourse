@@ -9,7 +9,8 @@ import { DEFAULT_CONFIG, Facilitator } from "./service";
 
 const env = process.env;
 const PORT = Number(env.PORT ?? 4020);
-const DATA_DIR = env.RECOURSE_DATA_DIR ?? ".data";
+// One data dir at the repo root, whichever directory a service is started from.
+const DATA_DIR = env.RECOURSE_DATA_DIR ?? new URL("../../../.data", import.meta.url).pathname;
 const publicBaseUrl = env.RECOURSE_PUBLIC_URL ?? `http://localhost:${PORT}`;
 
 // The signing key is Recourse's identity in every receipt. Locally it is created

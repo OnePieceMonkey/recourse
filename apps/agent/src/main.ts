@@ -6,10 +6,12 @@ import { cors } from "hono/cors";
 import { encodeJwk, generateSigner, signerFromEnv } from "@recourse/receipts";
 import { jevJudgeFromEnv, OfflineJudge } from "@recourse/judge";
 import { writerFromEnv } from "./llm";
+import { paypalAuditorFromEnv } from "./audit";
 import { runResearch, type AgentConfig, type AgentEvent } from "./research";
 
 const env = process.env;
-const DATA_DIR = env.RECOURSE_DATA_DIR ?? ".data";
+// One data dir at the repo root, whichever directory a service is started from.
+const DATA_DIR = env.RECOURSE_DATA_DIR ?? new URL("../../../.data", import.meta.url).pathname;
 const facilitatorUrl = env.RECOURSE_FACILITATOR_URL ?? "http://localhost:4020";
 const catalogUrl = env.RECOURSE_CATALOG_URL ?? "http://localhost:4030/catalog";
 const adminToken = env.RECOURSE_ADMIN_TOKEN ?? "dev-admin-token";
@@ -95,6 +97,8 @@ function printEvent(e: AgentEvent) {
       );
     case "claim":
       return console.log(`  claim ${e.result.outcome}: refund ${eur(e.result.refund.minor)} ${e.result.paypalRefundId ? `PayPal ${e.result.paypalRefundId}` : ""}`);
+    case "paypal_check":
+      return console.log(`  PayPal confirms refund ${e.check.refundId}: ${e.check.status}${e.check.amount ? ` ${e.check.amount.value} ${e.check.amount.currency_code}` : ""}`);
     case "answer":
       return console.log(`\nanswer:\n${e.answer.answer}\n${e.answer.citations.map((c) => `  [${c.url}] "${c.quote}"`).join("\n")}`);
     case "summary":
@@ -115,7 +119,7 @@ async function main() {
   if (cmd === "setup") return setup();
   if (cmd === "ask") {
     const question = rest.join(" ") || "My small business in Germany issues about 40 invoices a month. What do I have to do about e-invoicing by 2027?";
-    return runResearch(question, loadConfig(), writerFromEnv(), judge(), printEvent);
+    return runResearch(question, loadConfig(), writerFromEnv(), judge(), printEvent, paypalAuditorFromEnv());
   }
   if (cmd === "serve") {
     const app = new Hono();
@@ -123,7 +127,7 @@ async function main() {
     app.get("/run", (c) =>
       streamSSE(c, async (stream) => {
         const q = c.req.query("q") ?? "";
-        await runResearch(q, loadConfig(), writerFromEnv(), judge(), (e) => void stream.writeSSE({ event: e.type, data: JSON.stringify(e) })).catch((err) =>
+        await runResearch(q, loadConfig(), writerFromEnv(), judge(), (e) => void stream.writeSSE({ event: e.type, data: JSON.stringify(e) }), paypalAuditorFromEnv()).catch((err) =>
           stream.writeSSE({ event: "error", data: JSON.stringify({ type: "error", message: (err as Error).message }) }),
         );
         await stream.writeSSE({ event: "done", data: "{}" });

@@ -10,7 +10,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "pnpm -r --parallel typecheck",
-    "lint": "pnpm typecheck"
+    "lint": "pnpm typecheck",
+    "dev": "node --env-file-if-exists=.env scripts/dev.mjs",
+    "setup": "pnpm --filter @recourse/agent start setup",
+    "ask": "pnpm --filter @recourse/agent start ask"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
@@ -21,6 +24,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "protobufjs",
+      "@google/genai"
     ]
   }
 }

@@ -10,7 +10,8 @@ const PORT = Number(env.PORT ?? 4030);
 const publicBaseUrl = env.PUBLISHER_PUBLIC_URL ?? `http://localhost:${PORT}`;
 const facilitatorUrl = env.RECOURSE_FACILITATOR_URL ?? "http://localhost:4020";
 const adminToken = env.RECOURSE_ADMIN_TOKEN ?? "dev-admin-token";
-const DATA_DIR = env.RECOURSE_DATA_DIR ?? ".data";
+// One data dir at the repo root, whichever directory a service is started from.
+const DATA_DIR = env.RECOURSE_DATA_DIR ?? new URL("../../../.data", import.meta.url).pathname;
 const eur = (minor: number) => ({ currency: "EUR", minor });
 
 interface DemoPublisher {

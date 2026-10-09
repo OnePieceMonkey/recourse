@@ -3,6 +3,7 @@ import { ClaimResultSchema, type ClaimResult, type SignedOffer } from "@recourse
 import { sha256Hex, type Signer } from "@recourse/receipts";
 import { extractInspectableText, type Judge } from "@recourse/judge";
 import type { CatalogEntry, Writer, Answer } from "./llm";
+import type { PayPalCheck } from "./audit";
 import { payingFetch, type PaidReceipt } from "@recourse/gate";
 
 export interface AgentConfig {
@@ -24,6 +25,7 @@ export type AgentEvent =
   | { type: "refused"; url: string; reason: string; message?: string | undefined }
   | { type: "verified"; url: string; hashMatches: boolean; verdict: Verdict; details: unknown; decision: ClaimDecision }
   | { type: "claim"; url: string; result: ClaimResult }
+  | { type: "paypal_check"; url: string; check: PayPalCheck }
   | { type: "answer"; answer: Answer }
   | { type: "summary"; spentMinor: number; refundedMinor: number; blocked: number; refused: number; quarantined: number; used: number }
   | { type: "error"; message: string };
@@ -36,7 +38,18 @@ interface Me {
 
 const decode = (b: Uint8Array) => Buffer.from(b).toString("utf8");
 
-export async function runResearch(question: string, cfg: AgentConfig, writer: Writer, judge: Judge, emit: (e: AgentEvent) => void) {
+export interface RefundAuditor {
+  checkRefund(refundId: string): Promise<PayPalCheck>;
+}
+
+export async function runResearch(
+  question: string,
+  cfg: AgentConfig,
+  writer: Writer,
+  judge: Judge,
+  emit: (e: AgentEvent) => void,
+  auditor?: RefundAuditor,
+) {
   const api = async <T>(path: string, init?: RequestInit): Promise<T> => {
     const res = await fetch(`${cfg.facilitatorUrl}${path}`, {
       ...init,
@@ -152,6 +165,7 @@ export async function runResearch(question: string, cfg: AgentConfig, writer: Wr
         );
         refunded += claim.refund.minor;
         emit({ type: "claim", url: pick.url, result: claim });
+        if (claim.paypalRefundId && auditor) emit({ type: "paypal_check", url: pick.url, check: await auditor.checkRefund(claim.paypalRefundId) });
       }
     } catch (e) {
       emit({ type: "error", message: `${pick.url}: ${(e as Error).message}` });

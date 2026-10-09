@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
+    "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/server.ts",
+    "start": "node --env-file-if-exists=../../.env --import tsx src/server.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@recourse/gate": "workspace:*",
-    "@types/pg": "^8.23.1"
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15"
   }
 }
