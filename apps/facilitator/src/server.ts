@@ -39,6 +39,7 @@ async function loadAnchorer(): Promise<Anchorer> {
 }
 
 async function main() {
+  mkdirSync(DATA_DIR, { recursive: true });
   const db: Db = env.DATABASE_URL ? await openPostgres(env.DATABASE_URL) : await openPglite(`${DATA_DIR}/pglite`);
   await db.exec(SCHEMA);
 

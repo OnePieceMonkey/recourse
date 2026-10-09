@@ -3,7 +3,8 @@
 set -e
 cd /app
 (cd apps/facilitator && PORT=4020 node --import tsx src/server.ts) &
-sleep 4
+# Wait until Recourse answers before the services that register with it start.
+i=0; until node -e "fetch('http://127.0.0.1:4020/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; do i=$((i+1)); [ $i -gt 60 ] && break; sleep 1; done
 (cd apps/publisher-demo && PORT=4030 node --import tsx src/main.ts) &
 sleep 4
 # First boot without a stored agent identity: create one and print what to store.

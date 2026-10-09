@@ -105,12 +105,21 @@ const CATALOG: CatalogItem[] = [
 
 async function register(slug: string, signer: Signer) {
   const p = PUBLISHERS[slug]!;
-  const res = await fetch(`${facilitatorUrl}/v1/admin/publishers`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ id: p.id, name: p.name, payoutEmail: p.payoutEmail, kid: signer.kid, publicJwk: signer.publicJwk }),
-  });
-  if (!res.ok) throw new Error(`registering ${slug} failed: ${res.status} ${await res.text()}`);
+  // Recourse may still be starting (container boot), so retry for a while.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(`${facilitatorUrl}/v1/admin/publishers`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ id: p.id, name: p.name, payoutEmail: p.payoutEmail, kid: signer.kid, publicJwk: signer.publicJwk }),
+      });
+      if (res.ok) return;
+      throw new Error(`HTTP ${res.status} ${await res.text()}`);
+    } catch (e) {
+      if (attempt >= 20) throw new Error(`registering ${slug} failed: ${(e as Error).message}`);
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
 }
 
 async function main() {
