@@ -35,7 +35,7 @@ Postgres (`DATABASE_URL`) when hosted, same SQL for both.
 
 Shared packages use `moduleResolution: "Bundler"` and extensionless imports, so
 Next.js and `tsx` consume their TypeScript sources directly (avoids the Next 16
-NodeNext `.js` resolution trap, see papercuts 2026-09-25).
+NodeNext `.js` resolution trap).
 
 ## Layout
 
@@ -58,8 +58,6 @@ apps/web            console, publisher dashboard (AG Grid), receipt verifier, ow
 - Tests next to code (`*.test.ts`). Every policy rule has a test.
 - `readJson = (r: Response) => r.json() as Promise<any>` in tests (Response.json is
   `unknown` in @types/node 26).
-- Large build output (`.next`) can be eaten by the Mac's 15-minute disk cleaner; if a
-  build folder vanishes mid-run, symlink it to `/Volumes/Extern/dev-cache/recourse-*`.
 - Commit messages: conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).
 
 ## Specs
