@@ -26,6 +26,16 @@ export function contentStems(s: string): Set<string> {
   return out;
 }
 
+// Words that name the same subject for the offline judge. Jev does not need this.
+const CONCEPTS: string[][] = [["invoic", "xrechn", "zugfer", "peppol", "16931", "rechnu"]];
+const GENERIC = new Set(["small", "busine", "month", "issue", "german", "europe", "2025", "2026", "2027", "2028", "2030"]);
+
+function withConcepts(stems: Set<string>): Set<string> {
+  const out = new Set(stems);
+  for (const group of CONCEPTS) if (group.some((g) => stems.has(g))) for (const g of group) out.add(g);
+  return out;
+}
+
 const coverage = (wanted: Set<string>, have: Set<string>) =>
   wanted.size ? [...wanted].filter((w) => have.has(w)).length / wanted.size : 1;
 
@@ -136,9 +146,17 @@ export class OfflineJudge implements Judge {
     const guard = offerInjection(p);
     const offerText = [p.title, p.promise, p.accessTerms].join("\n");
     const conflict = FORBIDDEN.find(([inMandate, inOffer]) => inMandate.test(input.mandateText) && inOffer.test(offerText));
-    const fit = coverage(contentStems(input.userTask), contentStems(`${p.title} ${p.promise}`));
-    const onTask = conflict ? 0.03 : 0.1 + 0.85 * Math.min(1, fit * 1.6);
-    const signals = conflict ? [`outside mandate: ${conflict[2]}`] : [`task keywords in offer: ${Math.round(fit * 100)}%`];
+    const task = withConcepts(contentStems(input.userTask));
+    const offer = withConcepts(contentStems(`${p.title} ${p.promise}`));
+    const fit = coverage(task, offer);
+    // One shared topical word (not "business", "month", a year...) is enough to
+    // call a purchase on-task; plain overlap then only fine-tunes the estimate.
+    const topical = [...task].filter((w) => offer.has(w) && !GENERIC.has(w));
+    const base = topical.length ? 0.62 + 0.33 * Math.min(1, fit * 1.6) : 0.1 + 0.85 * Math.min(1, fit * 1.6);
+    const onTask = conflict ? 0.03 : base;
+    const signals = conflict
+      ? [`outside mandate: ${conflict[2]}`]
+      : [`task keywords in offer: ${Math.round(fit * 100)}%`, ...(topical.length ? [`shared topic: ${topical.join(", ")}`] : [])];
     return {
       verdict: { model: OFFLINE_MODEL, onTask: r3(capOnTask(onTask, guard)) },
       details: { model: OFFLINE_MODEL, latencyMs: Math.round(performance.now() - t0), heuristic: guard, signals },

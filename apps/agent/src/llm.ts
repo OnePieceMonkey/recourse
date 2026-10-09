@@ -54,7 +54,7 @@ export class GeminiWriter implements Writer {
     const out = await this.json<{ picks: Pick[] }>(
       [
         "You are a research agent with a small budget. Pick the paid sources worth buying to answer the user's question.",
-        "Pick every source whose title and promise look relevant. Skip clearly unrelated ones. Do not consider prices; budget rules are enforced elsewhere.",
+        "Pick every source whose title and promise look relevant. The user wants to act, so practical material (checklists, templates, step-by-step reports) counts as relevant. Skip clearly unrelated ones. Do not consider prices; budget rules are enforced elsewhere.",
         `User question: ${question}`,
         `Catalog (JSON): ${JSON.stringify(catalog.map(({ url, title, promise, publisher, price }) => ({ url, title, promise, publisher, price })))}`,
       ].join("\n\n"),
