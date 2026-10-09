@@ -1,0 +1,17 @@
+{
+  "name": "@recourse/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@recourse/policy": "workspace:*",
+    "@recourse/receipts": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

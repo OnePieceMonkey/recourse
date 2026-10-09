@@ -17,8 +17,9 @@ describe("canonicalize", () => {
       '{"a":{"c":null,"d":[1,"x"]},"b":1}',
     );
   });
-  it("rejects floats so money stays in cents", () => {
-    expect(() => canonicalize({ amount: 4.9 })).toThrow(/safe integers/);
+  it("keeps floats (probabilities) and rejects non-finite numbers", () => {
+    expect(canonicalize({ p: 0.6 })).toBe('{"p":0.6}');
+    expect(() => canonicalize({ p: Number.NaN })).toThrow(/non-finite/);
   });
   it("is stable for key order", () => {
     expect(sha256Hex(canonicalize({ a: 1, b: 2 }))).toBe(sha256Hex(canonicalize({ b: 2, a: 1 })));

@@ -1,16 +1,14 @@
 import { createHash } from "node:crypto";
 
-// RFC 8785 (JCS) subset: sorted keys, no whitespace. Our signed data only holds
-// strings, booleans, null, arrays, objects and safe integers, so JSON.stringify's
-// number formatting already matches JCS. Floats are rejected to keep money exact.
+// RFC 8785 (JCS): sorted keys, no whitespace, ECMAScript number serialization
+// (which is what JSON.stringify does). Probabilities are floats; money is kept
+// integral by the Zod schemas, not here.
 export function canonicalize(value: unknown): string {
   if (value === null || typeof value === "boolean" || typeof value === "string") {
     return JSON.stringify(value);
   }
   if (typeof value === "number") {
-    if (!Number.isSafeInteger(value)) {
-      throw new TypeError(`canonicalize: only safe integers allowed, got ${value}`);
-    }
+    if (!Number.isFinite(value)) throw new TypeError(`canonicalize: non-finite number ${value}`);
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
