@@ -1,7 +1,7 @@
 import { checkMandate, decideClaim, POLICY_VERSION, type ClaimDecision, type Mandate, type Verdict } from "@recourse/policy";
 import { ClaimResultSchema, type ClaimResult, type SignedOffer } from "@recourse/protocol";
 import { sha256Hex, type Signer } from "@recourse/receipts";
-import { extractInspectableText, type Judge } from "@recourse/judge";
+import { extractInspectableText, isCompleteVerdict, type Judge } from "@recourse/judge";
 import type { CatalogEntry, Writer, Answer } from "./llm";
 import type { PayPalCheck } from "./audit";
 import { payingFetch, type PaidReceipt } from "@recourse/gate";
@@ -60,7 +60,7 @@ export async function runResearch(
     return body as T;
   };
 
-  emit({ type: "start", question, writer: writer.name, judge: judge.name });
+  emit({ type: "start", question, writer: writer.name, judge: judge.model });
   const me = await api<Me>("/v1/agent/me");
   if (!me.mandate) throw new Error("the owner has not set a mandate");
   const mandate = me.mandate;
@@ -141,7 +141,8 @@ export async function runResearch(
           })
         : undefined;
       const verdict: Verdict = judged?.verdict ?? { model: "none" };
-      const decision = decideClaim({ hashMatches, ...(judged && Object.keys(judged.verdict).length > 1 ? { verdict: judged.verdict } : {}) });
+      // An incomplete verdict (judge down) is no evidence: no claim, but quarantine.
+      const decision = decideClaim({ hashMatches, ...(isCompleteVerdict(judged?.verdict) ? { verdict: judged!.verdict } : {}) });
       emit({ type: "verified", url: pick.url, hashMatches, verdict, details: judged?.details ?? null, decision });
 
       if (decision.quarantine) quarantined += 1;
