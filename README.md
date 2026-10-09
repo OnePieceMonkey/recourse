@@ -4,6 +4,10 @@
 
 > x402 payments have no recourse. Now they do.
 
+**Live demo (PayPal sandbox):** https://recourse-268830318991.europe-west1.run.app — open the
+console, ask a question, and watch the agent pay, verify and get refunded. Runs are rate-limited
+(5 per visitor per hour). The first request after idle can take ~20 s while the container starts.
+
 AI agents pay for web content and APIs on their own, mostly over [x402](https://x402.org). Those
 payments are final. An agent that pays for a page that does not deliver what was promised, that
 was swapped after the offer, or that hides instructions aimed at the agent, has no way to get its
