@@ -1,0 +1,254 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Recourse: x402 auth-capture on PayPal",
+    "locale": "en",
+    "output": "docs/diagram/recourse-flow.html",
+    "viewBox": [
+      1085,
+      700
+    ],
+    "column_fit": "spread",
+    "quality_profile": "showcase"
+  },
+  "participants": [
+    {
+      "id": "owner",
+      "type": "external",
+      "label": "Owner",
+      "sublabel": "human, approves once"
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent",
+      "sublabel": "Gemini · Jev · policy"
+    },
+    {
+      "id": "gate",
+      "type": "frontend",
+      "label": "Publisher gate",
+      "sublabel": "paidRoute"
+    },
+    {
+      "id": "recourse",
+      "type": "security",
+      "label": "Recourse",
+      "sublabel": "facilitator"
+    },
+    {
+      "id": "paypal",
+      "type": "cloud",
+      "label": "PayPal",
+      "sublabel": "sandbox REST"
+    },
+    {
+      "id": "log",
+      "type": "database",
+      "label": "Signed log",
+      "sublabel": "hash chain + OTS"
+    }
+  ],
+  "segments": [
+    {
+      "from": 160,
+      "to": 184,
+      "label": "Connect once"
+    },
+    {
+      "from": 198,
+      "to": 390,
+      "label": "Offer, verify, settle"
+    },
+    {
+      "from": 404,
+      "to": 512,
+      "label": "Verify delivery, claim"
+    },
+    {
+      "from": 526,
+      "to": 578,
+      "label": "Afterwards"
+    }
+  ],
+  "messages": [
+    {
+      "id": "approve",
+      "from": "owner",
+      "to": "paypal",
+      "y": 172,
+      "label": "approve PayPal Vault once",
+      "variant": "security",
+      "note": "Recourse turns the approval into a stored vault_id; the owner sets the mandate (limits) in Recourse"
+    },
+    {
+      "id": "get",
+      "from": "agent",
+      "to": "gate",
+      "y": 210,
+      "label": "GET /report",
+      "variant": "default"
+    },
+    {
+      "id": "offer",
+      "from": "gate",
+      "to": "agent",
+      "y": 238,
+      "label": "402 + signed offer",
+      "variant": "return",
+      "note": "price, SHA-256 of the content, plain-language promise, publisher signature"
+    },
+    {
+      "id": "authorize",
+      "from": "agent",
+      "to": "gate",
+      "y": 266,
+      "label": "PAYMENT-SIGNATURE",
+      "variant": "security",
+      "note": "mandate checked in code, Jev asked on-task; Ed25519 authorization bound to the offer hash"
+    },
+    {
+      "id": "settle",
+      "from": "gate",
+      "to": "recourse",
+      "y": 294,
+      "label": "/verify, then /settle",
+      "variant": "emphasis",
+      "note": "content produced first, publisher signs the SHA-256 of the bytes sent; mismatch = refused, nothing charged"
+    },
+    {
+      "id": "charge",
+      "from": "recourse",
+      "to": "paypal",
+      "y": 322,
+      "label": "charge vault, nobody present",
+      "variant": "emphasis",
+      "note": "Orders v2, merchant-initiated; below 1 EUR the prepaid balance pays"
+    },
+    {
+      "id": "receipt-log",
+      "from": "recourse",
+      "to": "log",
+      "y": 350,
+      "label": "signed receipt",
+      "variant": "dashed"
+    },
+    {
+      "id": "deliver",
+      "from": "gate",
+      "to": "agent",
+      "y": 378,
+      "label": "200 content + receipt",
+      "variant": "return"
+    },
+    {
+      "id": "claim",
+      "from": "agent",
+      "to": "recourse",
+      "y": 416,
+      "label": "claim + receipt as evidence",
+      "variant": "security",
+      "note": "before the LLM sees anything: hash in code, Jev judges promise and injection, policy decides"
+    },
+    {
+      "id": "refund",
+      "from": "recourse",
+      "to": "paypal",
+      "y": 444,
+      "label": "Refund API",
+      "variant": "emphasis",
+      "note": "own judge, same policy; balance purchases refund part of the funding top-up"
+    },
+    {
+      "id": "claim-result",
+      "from": "recourse",
+      "to": "agent",
+      "y": 472,
+      "label": "REFUND + refund id",
+      "variant": "return"
+    },
+    {
+      "id": "toolkit",
+      "from": "agent",
+      "to": "paypal",
+      "y": 500,
+      "label": "Agent Toolkit get_refund",
+      "variant": "dashed",
+      "note": "read-only: the agent checks the refund with PayPal itself"
+    },
+    {
+      "id": "payout",
+      "from": "recourse",
+      "to": "paypal",
+      "y": 538,
+      "label": "Payouts to publisher",
+      "variant": "default",
+      "note": "only after the protection window"
+    },
+    {
+      "id": "anchor",
+      "from": "recourse",
+      "to": "log",
+      "y": 566,
+      "label": "anchor head in Bitcoin",
+      "variant": "dashed",
+      "note": "OpenTimestamps; anyone verifies receipts in the browser"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "agent",
+      "from": 206,
+      "to": 506,
+      "type": "backend"
+    },
+    {
+      "participant": "gate",
+      "from": 206,
+      "to": 382,
+      "type": "frontend"
+    },
+    {
+      "participant": "recourse",
+      "from": 290,
+      "to": 355,
+      "type": "security"
+    },
+    {
+      "participant": "recourse",
+      "from": 412,
+      "to": 477,
+      "type": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "The model judges, code decides",
+      "items": [
+        "Jev returns probabilities for bounded questions",
+        "Pure policy functions decide whether money moves",
+        "No language model ever calls a payment API"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Nothing charged on a mismatch",
+      "items": [
+        "authorization flow: content first, settle after",
+        "Publisher signs the hash of what it actually sent",
+        "Swapped content is refused before PayPal is charged"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Every refund is a PayPal refund",
+      "items": [
+        "Vault purchases refund their own capture",
+        "Cent purchases refund part of the top-up",
+        "Every decision is a signed, anchored log entry"
+      ]
+    }
+  ]
+}

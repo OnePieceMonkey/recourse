@@ -32,6 +32,10 @@ Recourse implements x402's own buyer-protection scheme, `auth-capture`, on PayPa
 
 **The model judges, code decides.** No language model ever calls a payment API.
 
+![Recourse sequence: offer, verify, settle, claim, refund](docs/diagram/flow.png)
+
+<sub>Interactive version with notes on every step: [`docs/diagram/recourse-flow.html`](docs/diagram/recourse-flow.html) (made with Archify).</sub>
+
 ## Demo scenario
 
 An agent researches *"My small business in Germany issues about 40 invoices a month. What do I have

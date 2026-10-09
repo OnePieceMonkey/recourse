@@ -10,3 +10,8 @@ coverage/
 .data/
 *.ots.tmp
 .DS_Store
+
+# Archify receipts contain local absolute paths
+docs/diagram/*.finalize*.json
+docs/diagram/*.delivery.json
+docs/diagram/*.browser-check.json
