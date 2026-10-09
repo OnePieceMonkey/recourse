@@ -88,6 +88,8 @@ PayPal sandbox setup (accounts, the Vault checkbox, webhooks) is listed step by 
 ## x402 binding
 
 Wire format follows x402 V2 (`PAYMENT-REQUIRED`, `PAYMENT-SIGNATURE`, `PAYMENT-RESPONSE`, base64 JSON).
+Every message is validated in CI against the official SDK's schemas and header codecs (`@x402/core` 2.28,
+[`x402-interop.test.ts`](packages/protocol/src/x402-interop.test.ts)). Full binding spec: [`docs/BINDING.md`](docs/BINDING.md).
 
 ```json
 {

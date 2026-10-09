@@ -13,5 +13,8 @@
     "@recourse/policy": "workspace:*",
     "@recourse/receipts": "workspace:*",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@x402/core": "^2.28.0"
   }
 }
