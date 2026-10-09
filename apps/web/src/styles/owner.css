@@ -1,0 +1,113 @@
+.owner-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.owner-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.owner-card .btn {
+  justify-self: start;
+  margin-top: 4px;
+}
+.owner-card__big {
+  font-family: var(--f-display);
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.owner-card__note {
+  font-size: 14px;
+}
+.chip--lg {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 15px;
+  padding: 8px 12px;
+  letter-spacing: 0;
+}
+.budget {
+  height: 14px;
+  border: var(--bw) solid var(--black);
+  border-radius: var(--r-sm);
+  background: var(--white);
+  overflow: hidden;
+}
+.budget__fill {
+  height: 100%;
+  background: var(--butter);
+  border-right: var(--bw) solid var(--black);
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, rgba(0, 0, 0, 0.18) 5px 6px);
+  transition: width 0.6s ease;
+}
+
+.mandate {
+  display: grid;
+  gap: 24px;
+}
+.mandate__fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+.mandate__pubs {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.mandate__pubs legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+.mandate__checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: var(--bw) solid var(--black);
+  border-radius: var(--r-lg);
+  background: var(--white);
+  cursor: pointer;
+  font-weight: 500;
+}
+.check:has(input:checked) {
+  background: var(--butter);
+}
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--black);
+}
+.mandate__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+.mandate__current {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+}
+.range {
+  width: 100%;
+  accent-color: var(--black);
+  height: 28px;
+}
+
+@media (max-width: 960px) {
+  .owner-grid,
+  .mandate__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

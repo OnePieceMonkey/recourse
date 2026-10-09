@@ -65,11 +65,33 @@ export function createApp(f: Facilitator, opts: HttpOptions) {
 
   // ---------- public transparency log ----------
   app.get("/v1/log/head", async (c) => c.json((await f.logHead()) ?? null));
+  // Cheap public counters for the home page; everything here is also derivable from the log.
+  app.get("/v1/stats", async (c) => {
+    const [p] = await f.db.query<Record<string, number>>(
+      `SELECT COUNT(*)::int AS purchases, COALESCE(SUM(price_minor), 0)::int AS spent_minor,
+              COALESCE(SUM(refunded_minor), 0)::int AS refunded_minor,
+              COUNT(*) FILTER (WHERE funding = 'paypal_vault')::int AS paypal_charges FROM purchases`,
+    );
+    const [cl] = await f.db.query<Record<string, number>>(
+      `SELECT COUNT(*) FILTER (WHERE outcome = 'REFUND')::int AS refunds, COUNT(*) FILTER (WHERE outcome = 'REJECT')::int AS rejected,
+              COUNT(*) FILTER (WHERE outcome = 'CONTESTED')::int AS contested,
+              COUNT(*) FILTER (WHERE decided_reasons ? 'PROMPT_INJECTION')::int AS injections FROM claims`,
+    );
+    const [lg] = await f.db.query<Record<string, number>>(
+      `SELECT COUNT(*)::int AS entries, COUNT(*) FILTER (WHERE entry->>'type' = 'settlement_refused')::int AS refused FROM log`,
+    );
+    const [an] = await f.db.query<Record<string, number>>(
+      `SELECT COUNT(*)::int AS anchors, COUNT(*) FILTER (WHERE proof->>'status' = 'confirmed')::int AS confirmed FROM anchors`,
+    );
+    return c.json({ ...p, ...cl, ...lg, ...an });
+  });
   app.get("/v1/log", async (c) => {
     const head = await f.logHead();
     const to = Number(c.req.query("to") ?? head?.seq ?? 0);
     const from = Math.max(0, Number(c.req.query("from") ?? Math.max(0, to - 99)));
-    return c.json({ entries: await f.logRange(from, Math.min(to, from + 499)), headSeq: head?.seq ?? -1 });
+    const type = c.req.query("type");
+    const entries = await f.logRange(from, Math.min(to, from + 499));
+    return c.json({ entries: type ? entries.filter((e) => e.type === type) : entries, headSeq: head?.seq ?? -1 });
   });
   app.get("/v1/log/:seq", async (c) => {
     const seq = Number(c.req.param("seq"));

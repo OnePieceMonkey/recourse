@@ -1,0 +1,52 @@
+.grid-wrap {
+  width: 100%;
+  min-height: 220px;
+}
+.grid-empty {
+  font-family: var(--f-body);
+  font-size: 15px;
+  color: var(--muted);
+}
+.ag-theme-quartz .ag-header-cell-label,
+.ag-header-cell-text {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.ag-header-cell-text {
+  font-size: 11px;
+}
+.ag-cell:has(.stamp),
+.ag-cell:has(.chip),
+.ag-cell:has(.hash),
+.ag-cell:has(.cell-link) {
+  display: flex;
+  align-items: center;
+}
+.ag-cell.cell-mono {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.ag-cell.cell-total {
+  font-family: var(--f-display);
+}
+.ag-cell .stamp {
+  font-size: 10.5px;
+  padding: 4px 7px;
+  --tilt: -2deg;
+}
+.ag-cell .chip {
+  font-size: 11px;
+  padding: 3px 6px;
+}
+.ag-cell .cell-link {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+}
+.ag-floating-filter-input input {
+  font-size: 12.5px;
+}
+.ag-pinned-left-cols-container .ag-cell,
+.ag-pinned-left-header {
+  background-clip: padding-box;
+}

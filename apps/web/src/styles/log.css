@@ -1,0 +1,136 @@
+.logx {
+  padding-bottom: 24px;
+}
+.headbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, auto));
+  justify-content: space-between;
+  gap: 16px 32px;
+  padding: 18px 22px;
+  background: var(--white);
+  border: var(--bw) solid var(--black);
+  border-radius: var(--r-lg);
+  margin-bottom: 20px;
+}
+.headbar > div {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+.headbar__big {
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1;
+}
+.logx__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tape__head,
+.tape__row {
+  display: grid;
+  grid-template-columns: 84px 150px minmax(0, 1fr) 150px 120px 104px;
+  gap: 14px;
+  align-items: center;
+  padding: 0 22px;
+}
+.tape__head {
+  padding-top: 14px;
+  padding-bottom: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-bottom: var(--bw) solid var(--black);
+  background: var(--cream);
+  border-radius: 6px 6px 0 0;
+}
+.tape__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tape__row {
+  min-height: 56px;
+  border-bottom: 1px dashed #b9b09e;
+  font-size: 14px;
+}
+.tape__row:last-child {
+  border-bottom: 0;
+}
+.tape__row:hover {
+  background: var(--butter-light);
+}
+.tape__seq {
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tape__anchor {
+  display: inline-grid;
+  place-items: center;
+}
+.tape__type {
+  justify-self: start;
+  font-family: var(--f-body);
+  font-weight: 500;
+  font-size: 12px;
+}
+.tape__sum {
+  overflow-wrap: anywhere;
+}
+.tape__time,
+.tape__hash {
+  font-size: 12.5px;
+}
+.tape__verify {
+  justify-self: end;
+}
+.tape__empty {
+  padding: 28px 22px;
+}
+.tape__more {
+  padding: 14px 22px 18px;
+  border-top: 1px dashed #b9b09e;
+}
+
+@media (max-width: 960px) {
+  .headbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .tape__head {
+    display: none;
+  }
+  .tape__row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "seq type verify"
+      "sum sum sum"
+      "time hash hash";
+    padding: 12px 16px;
+    gap: 6px 12px;
+  }
+  .tape__seq {
+    grid-area: seq;
+  }
+  .tape__type {
+    grid-area: type;
+  }
+  .tape__sum {
+    grid-area: sum;
+  }
+  .tape__time {
+    grid-area: time;
+  }
+  .tape__hash {
+    grid-area: hash;
+    justify-self: end;
+  }
+  .tape__verify {
+    grid-area: verify;
+  }
+}
