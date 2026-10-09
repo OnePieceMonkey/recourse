@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { cors } from "hono/cors";
 import { encodeJwk, generateSigner, signerFromEnv } from "@recourse/receipts";
+import { POLICY_VERSION } from "@recourse/policy";
 import { jevJudgeFromEnv, OfflineJudge } from "@recourse/judge";
 import { writerFromEnv } from "./llm";
 import { paypalAuditorFromEnv } from "./audit";
@@ -77,6 +78,10 @@ function loadConfig(): AgentConfig {
     agentSigner: signerFromEnv("agent-key-1", s.agentKey),
     mandateText: MANDATE_TEXT,
     ...(env.RECOURSE_FETCH_REWRITE ? { fetchImpl: rewritingFetch(env.RECOURSE_FETCH_REWRITE) } : {}),
+    keepDelivery: (purchaseId, body, offer) => {
+      mkdirSync(`${DATA_DIR}/deliveries`, { recursive: true });
+      writeFileSync(`${DATA_DIR}/deliveries/${purchaseId}.json`, JSON.stringify({ offer: offer.body, bodyBase64: Buffer.from(body).toString("base64") }));
+    },
   };
 }
 
@@ -126,12 +131,36 @@ function printEvent(e: AgentEvent) {
 
 const judge = () => jevJudgeFromEnv() ?? new OfflineJudge();
 
+// Demo of the publisher side: a buyer (or a compromised agent) claims that an honest
+// report was "not as described". Recourse re-judges the committed bytes and rejects it.
+async function falseClaim(cfg: AgentConfig, titleIncludes = "Germany 2027") {
+  const dir = `${DATA_DIR}/deliveries`;
+  const kept = existsSync(dir) ? readdirSync(dir).map((f) => ({ id: f.replace(/\.json$/, ""), ...JSON.parse(readFileSync(`${dir}/${f}`, "utf8")) })) : [];
+  const me = (await (await fetch(`${cfg.facilitatorUrl}/v1/agent/me`, { headers: { Authorization: `Bearer ${cfg.agentToken}` } })).json()) as {
+    purchases: { id: string; title: string; claim_outcome: string | null }[];
+  };
+  const target = me.purchases.find((p) => p.title.includes(titleIncludes) && !p.claim_outcome && kept.some((k) => k.id === p.id));
+  if (!target) throw new Error(`no unclaimed purchase matching "${titleIncludes}" with a kept delivery; run the agent first`);
+  const body = kept.find((k) => k.id === target.id)!.bodyBase64 as string;
+  const res = await fetch(`${cfg.facilitatorUrl}/v1/claims`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${cfg.agentToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ purchaseId: target.id, reasons: ["NOT_AS_DESCRIBED"], refundBps: 10000, bodyBase64: body, policyVersion: POLICY_VERSION }),
+  });
+  return { purchase: target, result: await res.json() };
+}
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   if (cmd === "setup") return setup();
   if (cmd === "ask") {
     const question = rest.join(" ") || "My small business in Germany issues about 40 invoices a month. What do I have to do about e-invoicing by 2027?";
     return runResearch(question, loadConfig(), writerFromEnv(), judge(), printEvent, paypalAuditorFromEnv());
+  }
+  if (cmd === "false-claim") {
+    const { purchase, result } = await falseClaim(loadConfig(), rest.join(" ") || undefined);
+    console.log(`false claim against "${purchase.title}": ${JSON.stringify(result)}`);
+    return;
   }
   if (cmd === "serve") {
     const app = new Hono();
@@ -146,6 +175,14 @@ async function main() {
     let today = 0;
     let running = false;
     app.get("/limits", (c) => c.json({ running, today, perDay: PER_DAY }));
+    app.post("/demo/false-claim", async (c) => {
+      if (running) return c.json({ error: "busy", message: "Wait for the current run to finish." }, 429);
+      try {
+        return c.json(await falseClaim(loadConfig()));
+      } catch (e) {
+        return c.json({ error: "no_target", message: (e as Error).message }, 409);
+      }
+    });
     app.get("/run", (c) => {
       const ip = (c.req.header("x-forwarded-for") ?? "local").split(",")[0]!.trim();
       const now = Date.now();
@@ -177,7 +214,7 @@ async function main() {
     serve({ fetch: app.fetch, port }, () => console.log(`[agent] streaming runs on http://localhost:${port}/run?q=...`));
     return;
   }
-  console.log('usage: agent setup | agent ask "<question>" | agent serve');
+  console.log('usage: agent setup | agent ask "<question>" | agent false-claim [title] | agent serve');
 }
 
 void main().catch((e) => {

@@ -14,6 +14,8 @@ export interface AgentConfig {
   agentSigner: Signer;
   mandateText: string;
   fetchImpl?: typeof fetch; // hosted: maps public publisher URLs to the internal service
+  // Keeps what was delivered, so a claim can be filed (or a false one demonstrated) later.
+  keepDelivery?: (purchaseId: string, body: Uint8Array, offer: SignedOffer) => void;
 }
 
 export type AgentEvent =
@@ -126,6 +128,7 @@ export async function runResearch(
       }
       if (result.kind === "free") continue;
 
+      cfg.keepDelivery?.(result.receipt.purchaseId, result.body, result.offer);
       spent += result.offer.body.price.minor;
       spentNow += result.offer.body.price.minor;
       emit({ type: "paid", url: pick.url, receipt: result.receipt, price: result.offer.body.price });
