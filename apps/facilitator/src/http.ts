@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import { bodyLimit } from "hono/body-limit";
 import { BINDING, EXT_OFFER, EXT_RECEIPT, SCHEME } from "@recourse/protocol";
 import type { PublicJwk } from "@recourse/receipts";
 import { Facilitator, RecourseError, toRecourseError } from "./service";
@@ -16,6 +17,11 @@ const bearer = (c: Context) => c.req.header("Authorization")?.replace(/^Bearer\s
 export function createApp(f: Facilitator, opts: HttpOptions) {
   const app = new Hono();
   app.use("*", cors({ origin: "*", allowHeaders: ["Authorization", "Content-Type"], exposeHeaders: ["PAYMENT-RESPONSE"] }));
+
+  // Claims carry the delivered bytes; everything else is small JSON.
+  const claimLimit = bodyLimit({ maxSize: 4 * 1024 * 1024 });
+  const defaultLimit = bodyLimit({ maxSize: 512 * 1024 });
+  app.use("*", (c, next) => (c.req.path === "/v1/claims" ? claimLimit(c, next) : defaultLimit(c, next)));
 
   app.onError((e, c) => {
     const err = toRecourseError(e);
