@@ -4,6 +4,8 @@
 
 > x402 payments have no recourse. Now they do.
 
+**Demo video (2:44):** https://www.youtube.com/watch?v=OES6Zh4mUBM
+
 **Live demo (PayPal sandbox):** https://recourse-268830318991.europe-west1.run.app — open the
 console, ask a question, and watch the agent pay, verify and get refunded. Runs are rate-limited
 (5 per visitor per hour). The first request after idle can take ~20 s while the container starts.
